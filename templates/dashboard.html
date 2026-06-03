@@ -24,6 +24,32 @@
   </form>
 </div>
 
+{# ── LLM model selector ─────────────────────────────────────── #}
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form action="{{ url_for('models.set_model') }}" method="post"
+          class="d-flex align-items-center gap-3 flex-wrap">
+      <label class="form-label mb-0 fw-semibold text-nowrap" for="model-select">
+        🤖 LLM model:
+      </label>
+      <select id="model-select" name="model" class="form-select form-select-sm w-auto"
+              {% if not llm_enabled %}disabled title="No LLM token configured — using heuristic fallback"{% endif %}>
+        {% for m in available_models %}
+          <option value="{{ m }}" {% if m == active_model %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-sm btn-outline-secondary"
+              {% if not llm_enabled %}disabled{% endif %}>
+        Switch
+      </button>
+      <span class="badge {% if llm_enabled %}bg-info text-dark{% else %}bg-secondary{% endif %} ms-1">
+        {% if llm_enabled %}LLM: {{ active_model }}{% else %}heuristic (no token){% endif %}
+      </span>
+    </form>
+  </div>
+</div>
+{# ──────────────────────────────────────────────────────────── #}
+
 {% if not recommendations %}
   <div class="alert alert-info">
     No recommendations yet. Add symbols to your
@@ -98,6 +124,11 @@
 
 {% block scripts %}
 <script>
+// Auto-submit model selector on change
+document.getElementById('model-select')?.addEventListener('change', function () {
+  this.closest('form').submit();
+});
+
 // Simple client-side sort
 document.querySelectorAll('#rec-table th').forEach((th, i) => {
   th.style.cursor = 'pointer';

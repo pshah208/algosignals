@@ -21,6 +21,7 @@ for each recommendation.
 - [Setup](#setup)
 - [Configuration](#configuration)
 - [GitHub Models / Copilot LLM](#github-models--copilot-llm)
+- [Switching LLM models at runtime](#switching-llm-models-at-runtime)
 - [Running the app](#running-the-app)
 - [Daily schedule](#daily-schedule)
 - [JSON API](#json-api)
@@ -140,7 +141,8 @@ All settings are in `.env` (copy from `.env.example`):
 | `GITHUB_TOKEN` | *(empty)* | GitHub personal-access token for GitHub Models LLM (optional) |
 | `GITHUB_MODELS_TOKEN` | *(empty)* | Alias for `GITHUB_TOKEN` |
 | `LLM_BASE_URL` | `https://models.github.ai/inference` | LLM inference endpoint |
-| `LLM_MODEL` | `openai/gpt-4.1-mini` | Model identifier |
+| `LLM_MODEL` | `openai/gpt-4.1-mini` | Default model identifier (always first in selector) |
+| `LLM_AVAILABLE_MODELS` | *(seven models — see below)* | Comma-separated list of models shown in the dashboard selector |
 | `OPENAI_API_KEY` | *(empty)* | OpenAI API key (alternative to GitHub Models) |
 | `NEWS_API_KEY` | *(empty)* | NewsAPI key (optional — falls back to free RSS) |
 | `SCHEDULE_HOUR_IST` | `9` | Daily run hour in IST |
@@ -181,6 +183,37 @@ If neither `GITHUB_TOKEN` nor `OPENAI_API_KEY` is set:
 - Rationales use a **template** with the numeric scores.
 - A badge in the dashboard shows **"heuristic"** instead of **"LLM"**.
 - The app continues to work fully — no crash, no degraded functionality.
+
+---
+
+## Switching LLM models at runtime
+
+The dashboard shows an **LLM model** selector at the top.  Pick any model from
+the dropdown and click **Switch** (or just change the selection — it auto-submits).
+The chosen model is stored in the Flask session and used for all subsequent LLM
+calls (sentiment scoring and rationale generation) without restarting the app.
+
+### Available models (default list)
+
+| Identifier | Provider |
+|---|---|
+| `openai/gpt-4.1-mini` | OpenAI via GitHub Models |
+| `openai/gpt-4.1` | OpenAI via GitHub Models |
+| `openai/gpt-4o-mini` | OpenAI via GitHub Models |
+| `openai/gpt-4o` | OpenAI via GitHub Models |
+| `meta/llama-3.3-70b-instruct` | Meta via GitHub Models |
+| `microsoft/phi-4` | Microsoft via GitHub Models |
+| `mistral-ai/mistral-small` | Mistral via GitHub Models |
+
+Customise the list by setting `LLM_AVAILABLE_MODELS` (comma-separated) in `.env`.
+`LLM_MODEL` is always included as the default selection.
+
+### Model API
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/models` | `GET` | Returns `{"available": [...], "active": "..."}` |
+| `/api/models` | `POST` | Sets active model (`{"model": "..."}` JSON or form). Returns 400 for unknown models. |
 
 ---
 
