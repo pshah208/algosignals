@@ -22,6 +22,27 @@ class Config:
     LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://models.github.ai/inference")
     LLM_MODEL: str = os.getenv("LLM_MODEL", "openai/gpt-4.1-mini")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    # Comma-separated list of selectable model identifiers shown in the UI.
+    # LLM_MODEL is always included (prepended) if not already present.
+    LLM_AVAILABLE_MODELS: str = os.getenv(
+        "LLM_AVAILABLE_MODELS",
+        "openai/gpt-4.1-mini,openai/gpt-4.1,openai/gpt-4o-mini,openai/gpt-4o,"
+        "meta/llama-3.3-70b-instruct,microsoft/phi-4,mistral-ai/mistral-small",
+    )
+
+    @property
+    def llm_available_models(self) -> list[str]:
+        """Return the list of selectable model identifiers.
+
+        ``LLM_MODEL`` is always the first entry and always present.
+        """
+        raw = [m.strip() for m in self.LLM_AVAILABLE_MODELS.split(",") if m.strip()]
+        if self.LLM_MODEL not in raw:
+            raw.insert(0, self.LLM_MODEL)
+        elif raw[0] != self.LLM_MODEL:
+            raw.remove(self.LLM_MODEL)
+            raw.insert(0, self.LLM_MODEL)
+        return raw
 
     @property
     def llm_token(self) -> str:

@@ -42,11 +42,13 @@ def create_app() -> Flask:
     from blueprints.watchlist import bp as watchlist_bp
     from blueprints.config_routes import bp as config_bp
     from blueprints.api import bp as api_bp
+    from blueprints.models import bp as models_bp
 
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(watchlist_bp)
     app.register_blueprint(config_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(models_bp)
 
     # ------------------------------------------------------------------
     # Scheduler

@@ -4,6 +4,7 @@ import json
 
 from flask import Blueprint, flash, redirect, render_template, url_for
 
+from config import settings
 from database.db import SessionLocal
 from database.models import Recommendation, SignalRun
 
@@ -12,6 +13,8 @@ bp = Blueprint("dashboard", __name__)
 
 @bp.route("/")
 def index():
+    from blueprints.models import get_active_model
+
     db = SessionLocal()
     try:
         latest_run = db.query(SignalRun).order_by(SignalRun.run_at.desc()).first()
@@ -31,6 +34,9 @@ def index():
             "dashboard.html",
             latest_run=latest_run.to_dict() if latest_run else None,
             recommendations=recommendations,
+            available_models=settings.llm_available_models,
+            active_model=get_active_model(),
+            llm_enabled=settings.llm_enabled,
         )
     finally:
         db.close()

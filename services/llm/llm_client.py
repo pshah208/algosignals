@@ -42,6 +42,10 @@ class LLMClient:
         self.token = token if token is not None else settings.llm_token
         self.enabled = bool(self.token)
 
+    def set_model(self, model: str) -> None:
+        """Switch the active model identifier used for subsequent requests."""
+        self.model = model
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
