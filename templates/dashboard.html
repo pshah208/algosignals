@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — AlgoSignals{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h2 class="mb-0">Dashboard</h2>
+    {% if latest_run %}
+      <small class="text-muted">
+        Last run: {{ latest_run.run_at }} UTC &mdash;
+        <span class="badge
+          {% if latest_run.status == 'ok' %}bg-success
+          {% elif latest_run.status == 'error' %}bg-danger
+          {% else %}bg-secondary{% endif %}">
+          {{ latest_run.status }}
+        </span>
+      </small>
+    {% else %}
+      <small class="text-muted">No runs yet.</small>
+    {% endif %}
+  </div>
+  <form action="{{ url_for('dashboard.run_now') }}" method="post" class="d-inline">
+    <button type="submit" class="btn btn-primary">▶ Run Now</button>
+  </form>
+</div>
+
+{% if not recommendations %}
+  <div class="alert alert-info">
+    No recommendations yet. Add symbols to your
+    <a href="{{ url_for('watchlist.index') }}">watchlist</a> and click <strong>Run Now</strong>.
+  </div>
+{% else %}
+<div class="table-responsive">
+  <table class="table table-hover table-striped align-middle" id="rec-table">
+    <thead class="table-dark">
+      <tr>
+        <th>Symbol</th>
+        <th>Action</th>
+        <th>Score</th>
+        <th>Technical</th>
+        <th>News</th>
+        <th>Events</th>
+        <th>Financials</th>
+        <th>Earnings</th>
+        <th>LLM</th>
+        <th>Rationale</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for rec in recommendations %}
+      {% set fs = rec.factor_scores %}
+      <tr>
+        <td><strong>{{ rec.symbol }}</strong>
+          {% if rec.exchange %}<small class="text-muted">{{ rec.exchange }}</small>{% endif %}
+        </td>
+        <td>
+          <span class="badge badge-{{ rec.action }} rounded-pill fs-6">{{ rec.action }}</span>
+        </td>
+        <td>
+          <span class="fw-bold
+            {% if rec.composite_score > 0 %}text-success
+            {% elif rec.composite_score < 0 %}text-danger
+            {% else %}text-secondary{% endif %}">
+            {{ "%.3f"|format(rec.composite_score) }}
+          </span>
+          <div class="score-bar mt-1 bg-secondary w-100">
+            <div class="score-bar
+              {% if rec.composite_score >= 0 %}bg-success{% else %}bg-danger{% endif %}"
+              style="width: {{ [(rec.composite_score|abs * 100)|int, 100]|min }}%"></div>
+          </div>
+        </td>
+        {% for factor in ['technical', 'news', 'events', 'financials', 'earnings'] %}
+          {% set fd = fs.get(factor, {}) %}
+          {% set s = fd.get('score', 0) if fd else 0 %}
+          <td class="small
+            {% if s > 0 %}text-success{% elif s < 0 %}text-danger{% else %}text-muted{% endif %}"
+            title="{{ fd.get('rationale', '') if fd else '' }}">
+            {{ "%.2f"|format(s) }}
+          </td>
+        {% endfor %}
+        <td>
+          {% if rec.llm_used %}
+            <span class="badge bg-info text-dark">LLM</span>
+          {% else %}
+            <span class="badge bg-secondary">heuristic</span>
+          {% endif %}
+        </td>
+        <td class="small" style="max-width:300px; white-space:normal;">
+          {{ rec.rationale }}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Simple client-side sort
+document.querySelectorAll('#rec-table th').forEach((th, i) => {
+  th.style.cursor = 'pointer';
+  th.addEventListener('click', () => {
+    const tbody = th.closest('table').querySelector('tbody');
+    const rows = [...tbody.querySelectorAll('tr')];
+    const asc = th.dataset.asc !== 'true';
+    rows.sort((a, b) => {
+      const av = a.cells[i].textContent.trim();
+      const bv = b.cells[i].textContent.trim();
+      return asc ? av.localeCompare(bv, undefined, {numeric:true}) : bv.localeCompare(av, undefined, {numeric:true});
+    });
+    rows.forEach(r => tbody.appendChild(r));
+    th.dataset.asc = asc;
+  });
+});
+</script>
+{% endblock %}
