@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Run History — AlgoSignals{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Run History</h2>
+
+{% if runs %}
+<table class="table table-hover table-striped">
+  <thead class="table-dark">
+    <tr>
+      <th>ID</th>
+      <th>Run At (UTC)</th>
+      <th>Status</th>
+      <th>Summary</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for run in runs %}
+  <tr>
+    <td>{{ run.id }}</td>
+    <td>{{ run.run_at }}</td>
+    <td>
+      <span class="badge
+        {% if run.status == 'ok' %}bg-success
+        {% elif run.status == 'error' %}bg-danger
+        {% else %}bg-secondary{% endif %}">
+        {{ run.status }}
+      </span>
+    </td>
+    <td class="small">{{ run.summary or '—' }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div class="alert alert-info">No runs recorded yet.</div>
+{% endif %}
+{% endblock %}

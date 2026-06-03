@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Configuration — AlgoSignals{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Configuration</h2>
+
+<form action="{{ url_for('config_routes.save') }}" method="post">
+  <div class="row g-4">
+
+    <!-- Factor weights -->
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header fw-bold">Factor Weights</div>
+        <div class="card-body">
+          <p class="text-muted small">Weights do not need to sum to 1 — they are normalised automatically.</p>
+          {% for factor in ['technical', 'news', 'events', 'financials', 'earnings'] %}
+          <div class="mb-3">
+            <label class="form-label text-capitalize">{{ factor }}</label>
+            <input type="number" step="0.01" min="0" max="1" name="weight_{{ factor }}"
+                   class="form-control"
+                   value="{{ "%.2f"|format(weights.get(factor, 0.2)) }}" />
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Thresholds + Schedule -->
+    <div class="col-md-6">
+      <div class="card mb-4">
+        <div class="card-header fw-bold">Score Thresholds</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label">BUY threshold (composite ≥ this → BUY)</label>
+            <input type="number" step="0.01" min="0" max="1" name="buy_threshold"
+                   class="form-control" value="{{ "%.2f"|format(buy_threshold) }}" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">SELL threshold (composite ≤ this → SELL)</label>
+            <input type="number" step="0.01" min="-1" max="0" name="sell_threshold"
+                   class="form-control" value="{{ "%.2f"|format(sell_threshold) }}" />
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header fw-bold">Scheduler (IST)</div>
+        <div class="card-body">
+          <div class="row g-2 mb-3">
+            <div class="col">
+              <label class="form-label">Hour (0–23)</label>
+              <input type="number" min="0" max="23" name="schedule_hour"
+                     class="form-control" value="{{ schedule_hour }}" />
+            </div>
+            <div class="col">
+              <label class="form-label">Minute (0–59)</label>
+              <input type="number" min="0" max="59" name="schedule_minute"
+                     class="form-control" value="{{ schedule_minute }}" />
+            </div>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="scheduler_enabled"
+                   id="schedEnabled" {% if scheduler_enabled %}checked{% endif %} />
+            <label class="form-check-label" for="schedEnabled">Enable scheduled daily run</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /row -->
+
+  <div class="mt-4">
+    <button type="submit" class="btn btn-primary">Save Configuration</button>
+    <a href="{{ url_for('dashboard.index') }}" class="btn btn-secondary ms-2">Cancel</a>
+  </div>
+</form>
+{% endblock %}

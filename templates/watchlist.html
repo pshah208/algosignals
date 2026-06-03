@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Watchlist — AlgoSignals{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Watchlist</h2>
+
+<div class="card mb-4">
+  <div class="card-header">Add symbol</div>
+  <div class="card-body">
+    <form action="{{ url_for('watchlist.add') }}" method="post" class="row g-2">
+      <div class="col-md-4">
+        <input type="text" name="symbol" class="form-control" placeholder="Symbol (e.g. AAPL)" required />
+      </div>
+      <div class="col-md-3">
+        <input type="text" name="exchange" class="form-control" placeholder="Exchange (optional, e.g. NASDAQ)" />
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-success">Add</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if items %}
+<table class="table table-hover table-striped">
+  <thead class="table-dark">
+    <tr>
+      <th>Symbol</th>
+      <th>Exchange</th>
+      <th>Enabled</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for item in items %}
+  <tr>
+    <td><strong>{{ item.symbol }}</strong></td>
+    <td>{{ item.exchange or '—' }}</td>
+    <td>
+      {% if item.enabled %}
+        <span class="badge bg-success">Enabled</span>
+      {% else %}
+        <span class="badge bg-secondary">Disabled</span>
+      {% endif %}
+    </td>
+    <td>
+      <form action="{{ url_for('watchlist.toggle', item_id=item.id) }}" method="post" class="d-inline">
+        <button type="submit" class="btn btn-sm btn-outline-secondary">
+          {% if item.enabled %}Disable{% else %}Enable{% endif %}
+        </button>
+      </form>
+      <form action="{{ url_for('watchlist.delete', item_id=item.id) }}" method="post" class="d-inline"
+            onsubmit="return confirm('Remove {{ item.symbol }}?')">
+        <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div class="alert alert-info">Your watchlist is empty. Add a symbol above.</div>
+{% endif %}
+{% endblock %}
