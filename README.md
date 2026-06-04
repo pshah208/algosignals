@@ -34,10 +34,12 @@ for each recommendation.
 
 | Feature | Detail |
 |---|---|
-| **Dashboard** | Latest run table — symbol, BUY/SELL/HOLD badge, composite score, per-factor sub-scores, rationale |
+| **Dashboard** | Latest run table — symbol, current price, BUY/SELL/HOLD badge, composite score, per-factor sub-scores, rationale |
 | **Watchlist** | Add/remove/enable/disable symbols |
 | **Config panel** | Factor weights, BUY/SELL thresholds, scheduler IST time, enable/disable |
 | **Run History** | Recent run timestamps and status |
+| **Scoring Metrics page** | `/metrics` explains each factor, neutral `0.0` cases, and score thresholds |
+| **Price prediction** | `/predict/<symbol>` 30-day close forecast using a 50-step lookback LSTM (with graceful fallback) |
 | **JSON API** | `GET /api/v1/recommendations` (read-only, API-key protected) |
 | **Scheduler** | APScheduler daily job at configurable IST time |
 | **LLM rationale** | GitHub Models / OpenAI-compatible — fully optional |
@@ -53,7 +55,7 @@ to a neutral `0.0` when its data source is unavailable.
 | Factor | Weight (default) | Signal source |
 |---|---|---|
 | `technical` | 35 % | yfinance OHLCV → 20/50 SMA crossover, RSI-14, 20-day momentum, ATR volatility |
-| `news` | 25 % | RSS / NewsAPI → LLM or lexicon sentiment |
+| `news` | 25 % | Google News RSS (default, no key) + optional NewsAPI → LLM or VADER/lexicon sentiment |
 | `financials` | 20 % | yfinance `info` → P/E, revenue growth, profit margin, debt/equity |
 | `events` | 10 % | yfinance dividends, splits, earnings calendar |
 | `earnings` | 10 % | yfinance EPS surprise, forward EPS growth, upcoming earnings proximity |
@@ -82,6 +84,8 @@ database/
 services/
   signal_service.py              # Orchestrator + composite scoring
   scheduler.py                   # APScheduler daily job
+  prediction/
+    lstm_predictor.py            # 30-day close forecast service
   factors/
     __init__.py                  # FactorResult dataclass
     technical_signals.py
@@ -93,12 +97,13 @@ services/
     llm_client.py                # GitHub Models / OpenAI-compatible client (optional)
     prompts.py                   # Prompt templates
 blueprints/
-  dashboard.py                   # / and /runs
+  dashboard.py                   # /, /runs, /metrics
   watchlist.py                   # /watchlist
   config_routes.py               # /config
   api.py                         # /api/v1 (read-only JSON)
+  predict.py                     # /predict/<symbol>, /predict/api/<symbol>
 templates/
-  base.html, dashboard.html, watchlist.html, config.html, runs.html
+  base.html, dashboard.html, watchlist.html, config.html, runs.html, metrics.html, predict.html
 utils/
   logging.py                     # get_logger() helper
 tests/
@@ -142,9 +147,9 @@ All settings are in `.env` (copy from `.env.example`):
 | `GITHUB_MODELS_TOKEN` | *(empty)* | Alias for `GITHUB_TOKEN` |
 | `LLM_BASE_URL` | `https://models.github.ai/inference` | LLM inference endpoint |
 | `LLM_MODEL` | `openai/gpt-4.1-mini` | Default model identifier (always first in selector) |
-| `LLM_AVAILABLE_MODELS` | *(seven models — see below)* | Comma-separated list of models shown in the dashboard selector |
+| `LLM_AVAILABLE_MODELS` | *(ten models — see below)* | Comma-separated list of models shown in the dashboard selector |
 | `OPENAI_API_KEY` | *(empty)* | OpenAI API key (alternative to GitHub Models) |
-| `NEWS_API_KEY` | *(empty)* | NewsAPI key (optional — falls back to free RSS) |
+| `NEWS_API_KEY` | *(empty)* | NewsAPI key (optional — app works without it via RSS + VADER) |
 | `SCHEDULE_HOUR_IST` | `9` | Daily run hour in IST |
 | `SCHEDULE_MINUTE_IST` | `0` | Daily run minute in IST |
 | `APP_API_KEY` | *(empty)* | API key for `GET /api/v1/recommendations` |
@@ -179,7 +184,7 @@ LLM_MODEL=gpt-4o-mini
 ### LLM disabled (no token)
 
 If neither `GITHUB_TOKEN` nor `OPENAI_API_KEY` is set:
-- Sentiment scoring uses a **lexicon-based fallback**.
+- Sentiment scoring uses **VADER**, with lexicon fallback if VADER is unavailable.
 - Rationales use a **template** with the numeric scores.
 - A badge in the dashboard shows **"heuristic"** instead of **"LLM"**.
 - The app continues to work fully — no crash, no degraded functionality.
@@ -199,14 +204,22 @@ calls (sentiment scoring and rationale generation) without restarting the app.
 |---|---|
 | `openai/gpt-4.1-mini` | OpenAI via GitHub Models |
 | `openai/gpt-4.1` | OpenAI via GitHub Models |
-| `openai/gpt-4o-mini` | OpenAI via GitHub Models |
 | `openai/gpt-4o` | OpenAI via GitHub Models |
-| `meta/llama-3.3-70b-instruct` | Meta via GitHub Models |
+| `openai/gpt-5` | OpenAI via GitHub Models |
+| `openai/gpt-5-mini` | OpenAI via GitHub Models |
+| `openai/o4-mini` | OpenAI via GitHub Models |
+| `anthropic/claude-sonnet-4.6` | Anthropic via GitHub Models |
+| `anthropic/claude-opus-4.6` | Anthropic via GitHub Models |
+| `microsoft/mai-code-1-flash` | Microsoft via GitHub Models |
 | `microsoft/phi-4` | Microsoft via GitHub Models |
-| `mistral-ai/mistral-small` | Mistral via GitHub Models |
 
 Customise the list by setting `LLM_AVAILABLE_MODELS` (comma-separated) in `.env`.
 `LLM_MODEL` is always included as the default selection.
+
+### Why News or Events can be 0.0
+
+- **News 0.0** can be legitimate for neutral/mixed headlines or sparse coverage. By default AlgoSignals uses Google News RSS (no API key), then optional NewsAPI.
+- **Events 0.0** is common when there is no recent dividend/split and no near-term earnings event in the scoring window.
 
 ### Model API
 
@@ -236,6 +249,7 @@ gunicorn -w 1 app:app
 1. Visit `/watchlist` → add one or more symbols (e.g. `AAPL`, `RELIANCE.NS`).
 2. Return to `/` → click **▶ Run Now**.
 3. Results appear in the dashboard table sorted by composite score.
+4. Click any ticker symbol to open `/predict/<symbol>` and view the 30-day forecast chart.
 
 ---
 
@@ -297,4 +311,3 @@ The test suite covers:
 > - Past performance implied by any signal is not indicative of future results.
 > - Always do your own due diligence before making investment decisions.
 > - The authors accept no liability for financial losses arising from use of this software.
-

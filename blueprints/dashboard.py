@@ -7,6 +7,12 @@ from flask import Blueprint, flash, redirect, render_template, url_for
 from config import settings
 from database.db import SessionLocal
 from database.models import Recommendation, SignalRun
+from services.signal_service import (
+    DEFAULT_BUY_THRESHOLD,
+    DEFAULT_SELL_THRESHOLD,
+    DEFAULT_WEIGHTS,
+    get_current_price,
+)
 
 bp = Blueprint("dashboard", __name__)
 
@@ -29,6 +35,9 @@ def index():
             for r in recs:
                 d = r.to_dict()
                 d["factor_scores"] = r.factor_scores_dict
+                px = get_current_price(r.symbol)
+                d["current_price"] = px.get("price")
+                d["currency"] = px.get("currency", "")
                 recommendations.append(d)
         return render_template(
             "dashboard.html",
@@ -40,6 +49,17 @@ def index():
         )
     finally:
         db.close()
+
+
+@bp.route("/metrics")
+def metrics():
+    """User-facing explanation of factor scoring and composite thresholds."""
+    return render_template(
+        "metrics.html",
+        weights=DEFAULT_WEIGHTS,
+        buy_threshold=DEFAULT_BUY_THRESHOLD,
+        sell_threshold=DEFAULT_SELL_THRESHOLD,
+    )
 
 
 @bp.route("/run-now", methods=["POST"])

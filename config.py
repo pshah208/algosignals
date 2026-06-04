@@ -26,8 +26,8 @@ class Config:
     # LLM_MODEL is always included (prepended) if not already present.
     LLM_AVAILABLE_MODELS: str = os.getenv(
         "LLM_AVAILABLE_MODELS",
-        "openai/gpt-4.1-mini,openai/gpt-4.1,openai/gpt-4o-mini,openai/gpt-4o,"
-        "meta/llama-3.3-70b-instruct,microsoft/phi-4,mistral-ai/mistral-small",
+        "openai/gpt-4.1-mini,openai/gpt-4.1,openai/gpt-4o,openai/gpt-5,openai/gpt-5-mini,openai/o4-mini,"
+        "anthropic/claude-sonnet-4.6,anthropic/claude-opus-4.6,microsoft/mai-code-1-flash,microsoft/phi-4",
     )
 
     @property

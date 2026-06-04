@@ -8,6 +8,7 @@ Usage::
 
 import datetime
 import json
+from functools import lru_cache
 from typing import Any
 
 from database.db import SessionLocal
@@ -30,6 +31,41 @@ DEFAULT_WEIGHTS = {
 # Default score thresholds
 DEFAULT_BUY_THRESHOLD = 0.15
 DEFAULT_SELL_THRESHOLD = -0.15
+
+
+@lru_cache(maxsize=256)
+def get_current_price(symbol: str) -> dict[str, Any]:
+    """Best-effort latest-price fetch for dashboard display."""
+    try:
+        import yfinance as yf
+
+        ticker = yf.Ticker(symbol)
+        fast = getattr(ticker, "fast_info", None) or {}
+
+        price = (
+            fast.get("last_price")
+            or fast.get("lastPrice")
+            or fast.get("regularMarketPrice")
+            or fast.get("previous_close")
+            or fast.get("last_close")
+        )
+        currency = fast.get("currency") or ""
+
+        if price is None:
+            info = getattr(ticker, "info", None) or {}
+            price = (
+                info.get("currentPrice")
+                or info.get("regularMarketPrice")
+                or info.get("previousClose")
+            )
+            currency = currency or (info.get("currency") or "")
+
+        if price is None:
+            return {"price": None, "currency": currency}
+        return {"price": round(float(price), 4), "currency": currency}
+    except Exception:
+        logger.debug("Price lookup failed for %s", symbol, exc_info=True)
+        return {"price": None, "currency": ""}
 
 
 def _get_config(db, key: str, default: Any) -> Any:

@@ -67,6 +67,12 @@ class TestLLMAvailableModelsConfig:
             models = cfg.llm_available_models
         assert models.count(cfg.LLM_MODEL) == 1
 
+    def test_default_list_includes_anthropic_and_microsoft(self):
+        cfg = Config()
+        models = cfg.llm_available_models
+        assert any(m.startswith("anthropic/") for m in models)
+        assert any(m.startswith("microsoft/") for m in models)
+
 
 # ---------------------------------------------------------------------------
 # LLMClient.set_model unit tests

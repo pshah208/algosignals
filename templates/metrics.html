@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Scoring Metrics — AlgoSignals{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Scoring Metrics</h2>
+<p class="text-muted">
+  Each factor returns a score from <strong>-1.0</strong> (bearish) to <strong>+1.0</strong> (bullish). A value near
+  <strong>0.0</strong> is often valid and means neutral/mixed/sparse data, not an error.
+</p>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h5>Composite Score & Actions</h5>
+    <ul class="mb-0">
+      <li>Technical {{ (weights.technical * 100)|int }}% + News {{ (weights.news * 100)|int }}% + Events {{ (weights.events * 100)|int }}% + Financials {{ (weights.financials * 100)|int }}% + Earnings {{ (weights.earnings * 100)|int }}%.</li>
+      <li><strong>BUY</strong> when score ≥ {{ "%.2f"|format(buy_threshold) }}.</li>
+      <li><strong>SELL</strong> when score ≤ {{ "%.2f"|format(sell_threshold) }}.</li>
+      <li><strong>HOLD</strong> otherwise.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="accordion" id="metrics-accordion">
+  <div class="accordion-item">
+    <h2 class="accordion-header"><button class="accordion-button" data-bs-toggle="collapse" data-bs-target="#tech">Technical (35%)</button></h2>
+    <div id="tech" class="accordion-collapse collapse show" data-bs-parent="#metrics-accordion"><div class="accordion-body">
+      Data source: yfinance OHLCV history. Uses 20/50 SMA crossover, RSI-14, 20-day momentum, and ATR volatility.
+      +1.0 means broad bullish technical setup, -1.0 means broad bearish setup, 0.0 means mixed/sideways or insufficient trend signal.
+    </div></div>
+  </div>
+  <div class="accordion-item">
+    <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#news">News (25%)</button></h2>
+    <div id="news" class="accordion-collapse collapse" data-bs-parent="#metrics-accordion"><div class="accordion-body">
+      Data sources: Google News RSS by default (no API key required), optional NewsAPI supplement. Headlines are scored by LLM when enabled, otherwise VADER (and then lexicon fallback if VADER is unavailable).
+      +1.0 = strongly positive headline tone, -1.0 = strongly negative, 0.0 = neutral/mixed headlines or sparse headline data.
+      NewsAPI key is optional.
+    </div></div>
+  </div>
+  <div class="accordion-item">
+    <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#events">Events (10%)</button></h2>
+    <div id="events" class="accordion-collapse collapse" data-bs-parent="#metrics-accordion"><div class="accordion-body">
+      Data source: yfinance dividends, splits, and calendar dates. Positive moves include dividend-paying/growing and bullish split signals; negatives include dividend cuts and reverse splits.
+      0.0 is common and legitimate when there are no recent dividends/splits and no earnings event in the near scoring window.
+    </div></div>
+  </div>
+  <div class="accordion-item">
+    <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#fin">Financials (20%)</button></h2>
+    <div id="fin" class="accordion-collapse collapse" data-bs-parent="#metrics-accordion"><div class="accordion-body">
+      Data source: yfinance fundamentals (P/E, revenue growth, profit margin, debt/equity).
+      +1.0 indicates strong growth/profitability with reasonable valuation/leverage, -1.0 indicates weak fundamentals, 0.0 means balanced or missing fundamental inputs.
+    </div></div>
+  </div>
+  <div class="accordion-item">
+    <h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#earn">Earnings (10%)</button></h2>
+    <div id="earn" class="accordion-collapse collapse" data-bs-parent="#metrics-accordion"><div class="accordion-body">
+      Data source: yfinance earnings history/calendar. Uses EPS surprise, forward EPS growth signal, and upcoming-earnings proximity.
+      +1.0 means strong earnings momentum, -1.0 means weak/negative earnings trend, 0.0 means neutral/mixed data or no strong earnings catalyst.
+    </div></div>
+  </div>
+</div>
+{% endblock %}
+
