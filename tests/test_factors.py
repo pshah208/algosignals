@@ -105,12 +105,15 @@ class TestNewsSignals:
         with (
             patch("services.factors.news_signals._fetch_newsapi", return_value=[]),
             patch("services.factors.news_signals._fetch_rss", return_value=[]),
+            patch("services.factors.news_signals._get_company_name", return_value=""),
         ):
             from services.factors import news_signals
 
             result = news_signals.compute("AAPL", llm_client=None)
         _valid_result(result)
         assert result.score == 0.0
+        assert result.raw_values["headline_count"] == 0
+        assert result.raw_values["scorer"] == "none"
 
     def test_lexicon_positive_headlines(self):
         """Returns positive score for bullish headlines using lexicon fallback."""
@@ -118,12 +121,16 @@ class TestNewsSignals:
         with (
             patch("services.factors.news_signals._fetch_newsapi", return_value=[]),
             patch("services.factors.news_signals._fetch_rss", return_value=headlines),
+            patch("services.factors.news_signals._get_company_name", return_value="Apple Inc"),
         ):
             from services.factors import news_signals
 
             result = news_signals.compute("AAPL", llm_client=None)
         _valid_result(result)
         assert result.score > 0
+        assert result.raw_values["source_used"] == "rss"
+        assert result.raw_values["headline_count"] == len(headlines)
+        assert result.raw_values["scorer"] in {"vader", "lexicon"}
 
     def test_lexicon_negative_headlines(self):
         """Returns negative score for bearish headlines."""
@@ -131,6 +138,7 @@ class TestNewsSignals:
         with (
             patch("services.factors.news_signals._fetch_newsapi", return_value=[]),
             patch("services.factors.news_signals._fetch_rss", return_value=headlines),
+            patch("services.factors.news_signals._get_company_name", return_value=""),
         ):
             from services.factors import news_signals
 
@@ -147,12 +155,15 @@ class TestNewsSignals:
         with (
             patch("services.factors.news_signals._fetch_newsapi", return_value=[]),
             patch("services.factors.news_signals._fetch_rss", return_value=headlines),
+            patch("services.factors.news_signals._get_company_name", return_value=""),
         ):
             from services.factors import news_signals
 
             result = news_signals.compute("AAPL", llm_client=mock_llm)
         mock_llm.score_news_sentiment.assert_called_once()
         assert result.score == pytest.approx(0.8)
+        assert result.raw_values["llm_used"] is True
+        assert result.raw_values["scorer"] == "llm"
 
     def test_llm_failure_falls_back_to_lexicon(self):
         """Falls back to lexicon when LLM raises an exception."""
@@ -163,12 +174,14 @@ class TestNewsSignals:
         with (
             patch("services.factors.news_signals._fetch_newsapi", return_value=[]),
             patch("services.factors.news_signals._fetch_rss", return_value=headlines),
+            patch("services.factors.news_signals._get_company_name", return_value=""),
         ):
             from services.factors import news_signals
 
             result = news_signals.compute("AAPL", llm_client=mock_llm)
         _valid_result(result)
         # Lexicon fallback should produce a non-zero score for clearly bullish text
+        assert result.score > 0
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +216,7 @@ class TestEventsSignals:
 
             result = events_signals.compute("AAPL")
         _valid_result(result)
+        assert "next_earnings_days" in result.raw_values
 
 
 # ---------------------------------------------------------------------------

@@ -39,7 +39,11 @@ def compute(symbol: str) -> FactorResult:
         ticker = yf.Ticker(symbol)
         score = 0.0
         notes: list[str] = []
-        raw: dict = {}
+        raw: dict = {
+            "recent_dividend_found": False,
+            "recent_split_found": False,
+            "next_earnings_days": None,
+        }
 
         # --- Dividends ---
         try:
@@ -47,6 +51,7 @@ def compute(symbol: str) -> FactorResult:
             if dividends is not None and not dividends.empty:
                 recent = dividends.last("180D")
                 if not recent.empty:
+                    raw["recent_dividend_found"] = True
                     raw["recent_dividends"] = float(recent.iloc[-1])
                     score += 0.2  # paying dividends is positive
                     notes.append("dividend-paying")
@@ -68,6 +73,7 @@ def compute(symbol: str) -> FactorResult:
             if splits is not None and not splits.empty:
                 recent_splits = splits.last("180D")
                 if not recent_splits.empty:
+                    raw["recent_split_found"] = True
                     ratio = float(recent_splits.iloc[-1])
                     raw["recent_split_ratio"] = ratio
                     if ratio > 1:
@@ -103,6 +109,7 @@ def compute(symbol: str) -> FactorResult:
                             else datetime.date.fromisoformat(str(next_earnings)[:10])
                         )
                         days_until = (ne_dt - datetime.date.today()).days
+                        raw["next_earnings_days"] = days_until
                         if 0 <= days_until <= 14:
                             score += 0.1
                             notes.append(f"earnings-in-{days_until}d")
@@ -113,6 +120,11 @@ def compute(symbol: str) -> FactorResult:
 
         result.score = round(float(np.clip(score, -1, 1)), 4)
         result.rationale = ", ".join(notes) if notes else "No significant corporate events."
+        raw["neutral_reason"] = (
+            "No recent dividend/split and no earnings event in the scoring window."
+            if result.score == 0.0
+            else ""
+        )
         result.raw_values = raw
 
     except Exception:

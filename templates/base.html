@@ -50,6 +50,10 @@
           <a class="nav-link {% if request.endpoint == 'dashboard.runs' %}active{% endif %}"
              href="{{ url_for('dashboard.runs') }}">Run History</a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'dashboard.metrics' %}active{% endif %}"
+             href="{{ url_for('dashboard.metrics') }}">Scoring Metrics</a>
+        </li>
       </ul>
     </div>
   </div>

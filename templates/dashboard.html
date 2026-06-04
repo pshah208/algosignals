@@ -61,6 +61,7 @@
     <thead class="table-dark">
       <tr>
         <th>Symbol</th>
+        <th>Current Price</th>
         <th>Action</th>
         <th>Score</th>
         <th>Technical</th>
@@ -76,8 +77,15 @@
     {% for rec in recommendations %}
       {% set fs = rec.factor_scores %}
       <tr>
-        <td><strong>{{ rec.symbol }}</strong>
+        <td><strong><a href="{{ url_for('predict.show', symbol=rec.symbol) }}" title="Click for 30-day LSTM price prediction">{{ rec.symbol }}</a></strong>
           {% if rec.exchange %}<small class="text-muted">{{ rec.exchange }}</small>{% endif %}
+        </td>
+        <td>
+          {% if rec.current_price is not none %}
+            {{ "%.2f"|format(rec.current_price) }}{% if rec.currency %} {{ rec.currency }}{% endif %}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
         </td>
         <td>
           <span class="badge badge-{{ rec.action }} rounded-pill fs-6">{{ rec.action }}</span>

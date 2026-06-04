@@ -43,12 +43,14 @@ def create_app() -> Flask:
     from blueprints.config_routes import bp as config_bp
     from blueprints.api import bp as api_bp
     from blueprints.models import bp as models_bp
+    from blueprints.predict import bp as predict_bp
 
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(watchlist_bp)
     app.register_blueprint(config_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(models_bp)
+    app.register_blueprint(predict_bp)
 
     # ------------------------------------------------------------------
     # Scheduler
