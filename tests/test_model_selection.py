@@ -246,6 +246,21 @@ class TestModelsAPIPost:
         data = resp.get_json()
         assert data["active"] == target
 
+    def test_model_switch_does_not_mutate_shared_client(self, client):
+        from config import settings
+        from services.llm import llm_client as llm_mod
+
+        original = LLMClient(model=settings.LLM_MODEL)
+        with patch.object(llm_mod, "_client", original):
+            target = settings.llm_available_models[1]
+            assert client.post("/api/models", json={"model": target}).status_code == 200
+            assert original.model == settings.LLM_MODEL
+            assert client.get("/api/models").json["active"] == target
+
+    @pytest.mark.parametrize("data", [["invalid"], {"model": 123}, {"model": {}}])
+    def test_invalid_model_types_return_400(self, client, data):
+        assert client.post("/api/models", json=data).status_code == 400
+
 
 # ---------------------------------------------------------------------------
 # No-token (llm_enabled=False) graceful degradation

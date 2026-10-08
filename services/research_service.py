@@ -45,25 +45,30 @@ def make_research_tools(symbol):
     class NoArguments(BaseModel):
         model_config = ConfigDict(extra="forbid")
 
-    @define_tool(
-        name="saved_signal_evidence",
-        description=f"Read the latest completed AlgoSignals recommendation and dated factor evidence for {symbol}.",
-        params_type=NoArguments,
-    )
     async def evidence(_params, _invocation):
         return await asyncio.to_thread(saved_evidence, symbol)
 
-    @define_tool(
-        name="current_price",
-        description=f"Read the latest best-effort price for {symbol}. Cache freshness is at most 60 seconds.",
-        params_type=NoArguments,
-    )
     async def price(_params, _invocation):
         from services.signal_service import get_current_price
 
         return await asyncio.to_thread(get_current_price, symbol)
 
-    return [evidence, price]
+    return [
+        define_tool(
+            name="saved_signal_evidence",
+            description=f"Read the latest completed AlgoSignals recommendation and dated factor evidence for {symbol}.",
+            params_type=NoArguments,
+            handler=evidence,
+            defer="never",
+        ),
+        define_tool(
+            name="current_price",
+            description=f"Read the latest best-effort price for {symbol}. Cache freshness is at most 60 seconds.",
+            params_type=NoArguments,
+            handler=price,
+            defer="never",
+        ),
+    ]
 
 
 def tradingview_servers():

@@ -14,7 +14,9 @@ from config import settings
 class CopilotRuntime:
     """Reuse one runtime on a dedicated event loop across Flask/scheduler threads."""
 
-    def __init__(self):
+    def __init__(self, token=None):
+        self._token = token
+        self._closed = False
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()
@@ -35,11 +37,19 @@ class CopilotRuntime:
                 env = dict(os.environ)
                 env.pop("GITHUB_TOKEN", None)
                 env.pop("GH_TOKEN", None)
+                options = {}
+                if self._token:
+                    options = {
+                        "github_token": self._token,
+                        "use_logged_in_user": False,
+                        "mode": "empty",
+                        "base_directory": self._workspace.name,
+                    }
                 client = CopilotClient(
-                    use_logged_in_user=True,
                     working_directory=self._workspace.name,
                     env=env,
                     log_level="error",
+                    **options,
                 )
                 try:
                     await client.start()
@@ -50,6 +60,8 @@ class CopilotRuntime:
             return self._client
 
     def _call(self, operation, timeout=60):
+        if self._closed:
+            raise RuntimeError("Copilot session expired.")
         if not self._slots.acquire(timeout=1):
             raise RuntimeError("Copilot is busy; retry shortly.")
 
@@ -113,7 +125,10 @@ class CopilotRuntime:
             return PermissionDecisionUserNotAvailable()
 
         return {
-            "available_tools": tool_names + sorted(mcp_names),
+            "available_tools": (
+                [f"custom:{name}" for name in tool_names]
+                + [f"mcp:{name}" for name in sorted(mcp_names)]
+            ),
             "tools": tools or [],
             "mcp_servers": mcp_servers or {},
             "on_permission_request": permissions,
@@ -184,7 +199,15 @@ class CopilotRuntime:
         return self._call(investigate)
 
     def close(self):
+        if self._closed:
+            return
+        self._closed = True
         async def stop():
+            pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
             if self._client is not None:
                 await self._client.stop()
 
@@ -196,6 +219,9 @@ class CopilotRuntime:
                 future.cancel()
             self._loop.call_soon_threadsafe(self._loop.stop)
             self._thread.join(timeout=2)
+        if not self._thread.is_alive():
+            self._loop.close()
+        self._token = None
         self._workspace.cleanup()
 
 
@@ -210,3 +236,18 @@ def get_copilot_runtime():
             _runtime = CopilotRuntime()
             atexit.register(_runtime.close)
         return _runtime
+
+
+def get_request_copilot_runtime():
+    """Use browser-owned OAuth credentials; never fall back to host auth when configured."""
+    from flask import has_request_context
+
+    if has_request_context():
+        from services.github_auth import get_user_runtime
+
+        runtime = get_user_runtime()
+        if runtime is not None:
+            return runtime
+        if settings.GITHUB_CLIENT_ID:
+            raise RuntimeError("Sign in with GitHub first.")
+    return get_copilot_runtime()

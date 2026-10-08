@@ -44,6 +44,8 @@ def create_app() -> Flask:
     from blueprints.api import bp as api_bp
     from blueprints.models import bp as models_bp
     from blueprints.predict import bp as predict_bp
+    from blueprints.research import bp as research_bp
+    from blueprints.auth import bp as auth_bp
 
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(watchlist_bp)
@@ -51,6 +53,12 @@ def create_app() -> Flask:
     app.register_blueprint(api_bp)
     app.register_blueprint(models_bp)
     app.register_blueprint(predict_bp)
+    app.register_blueprint(research_bp)
+    app.register_blueprint(auth_bp)
+    app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_SECURE"] = settings.FLASK_ENV != "development"
 
     # ------------------------------------------------------------------
     # Scheduler

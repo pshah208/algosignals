@@ -215,7 +215,13 @@ def _compute_symbol(
         "composite_score": composite,
         "factor_scores": json.dumps(factor_details),
         "rationale": rationale,
-        "llm_used": llm_client.enabled,
+        "llm_used": bool(
+            getattr(llm_client, "last_call_succeeded", llm_client.enabled)
+            or any(
+                details["raw_values"].get("llm_used", False)
+                for details in factor_details.values()
+            )
+        ),
         "created_at": datetime.datetime.utcnow(),
     }
 

@@ -200,6 +200,43 @@ def test_failed_commit_rolls_back_before_recording_error(database, monkeypatch):
         assert db.query(Recommendation).count() == 0
 
 
+@pytest.mark.parametrize("sentiment_used", [False, True])
+def test_llm_usage_reflects_success_not_enabled(
+    database, monkeypatch, sentiment_used
+):
+    seed(database, ["S0"])
+    local = threading.local()
+
+    class Client:
+        enabled = True
+
+        @property
+        def last_call_succeeded(self):
+            return getattr(local, "succeeded", False)
+
+        def generate_rationale(self, **kwargs):
+            local.succeeded = False
+            return "Heuristic fallback"
+
+    client = Client()
+
+    def factor(name, symbol, llm_client):
+        assert llm_client is client
+        if name == "news":
+            local.succeeded = sentiment_used
+            return FactorResult(raw_values={"llm_used": sentiment_used})
+        return FactorResult()
+
+    monkeypatch.setattr(svc, "_run_factor", factor)
+    run_id = svc.run_signals(client)
+    with database() as db:
+        assert db.get(SignalRun, run_id).status == "ok"
+        rec = db.query(Recommendation).one()
+        assert rec.rationale == "Heuristic fallback"
+        assert rec.llm_used is sentiment_used
+        assert rec.factor_scores_dict["news"]["raw_values"]["llm_used"] is sentiment_used
+
+
 @pytest.fixture()
 def price_provider(monkeypatch):
     svc.get_current_price.cache_clear()

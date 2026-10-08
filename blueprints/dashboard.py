@@ -17,6 +17,17 @@ from services.signal_service import (
 bp = Blueprint("dashboard", __name__)
 
 
+def _github_context():
+    from services.github_auth import get_login_info
+
+    return {
+        "github_login": get_login_info(),
+        "auth_enabled": bool(
+            settings.GITHUB_CLIENT_ID and settings.GITHUB_CLIENT_SECRET and settings.GITHUB_REDIRECT_URI
+        ),
+    }
+
+
 @bp.route("/")
 def index():
     from blueprints.models import available_models, get_active_model
@@ -47,6 +58,7 @@ def index():
             active_model=get_active_model(),
             llm_enabled=settings.llm_enabled,
             llm_provider=settings.LLM_PROVIDER,
+            **_github_context(),
         )
     finally:
         db.close()
@@ -68,6 +80,12 @@ def run_now():
     from blueprints.models import get_active_model
     from services.llm.llm_client import get_llm_client
     from services.signal_service import run_signals
+    if settings.LLM_PROVIDER == "copilot":
+        from blueprints.research import require_copilot_key
+
+        denied = require_copilot_key(form=True)
+        if denied:
+            return denied
 
     try:
         run_id = run_signals(llm_client=get_llm_client(model=get_active_model()))
@@ -75,6 +93,11 @@ def run_now():
     except Exception as exc:
         flash(f"Run failed: {exc}", "danger")
     return redirect(url_for("dashboard.index"))
+
+
+@bp.route("/research")
+def research_page():
+    return render_template("research.html", llm_provider=settings.LLM_PROVIDER, **_github_context())
 
 
 @bp.route("/runs")

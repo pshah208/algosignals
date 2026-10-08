@@ -16,14 +16,17 @@ _SESSION_KEY = "active_llm_model"
 def get_active_model() -> str:
     """Return the model currently selected for this session (or the default)."""
     default = settings.COPILOT_MODEL if settings.LLM_PROVIDER == "copilot" else settings.LLM_MODEL
-    return session.get(_SESSION_KEY, default)
+    return session.get(f"{_SESSION_KEY}:{settings.LLM_PROVIDER}", default)
 
 
 def available_models() -> list[str]:
     if settings.LLM_PROVIDER == "copilot":
-        from services.llm.copilot_client import get_copilot_runtime
+        from services.llm.copilot_client import get_request_copilot_runtime
 
-        return get_copilot_runtime().metadata()["available"] or [settings.COPILOT_MODEL]
+        try:
+            return get_request_copilot_runtime().metadata()["available"] or [settings.COPILOT_MODEL]
+        except RuntimeError:
+            return [settings.COPILOT_MODEL]
     return settings.llm_available_models
 
 
@@ -84,7 +87,7 @@ def set_model():
         flash(f"Unknown model '{model}'.", "danger")
         return redirect(url_for("dashboard.index"))
 
-    session[_SESSION_KEY] = model
+    session[f"{_SESSION_KEY}:{settings.LLM_PROVIDER}"] = model
 
     if is_json:
         return jsonify({"active": model})

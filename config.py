@@ -24,6 +24,9 @@ class Config:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "models").strip().lower()
     COPILOT_MODEL: str = os.getenv("COPILOT_MODEL", "gpt-4.1")
+    GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "")
+    GITHUB_CLIENT_SECRET: str = os.getenv("GITHUB_CLIENT_SECRET", "")
+    GITHUB_REDIRECT_URI: str = os.getenv("GITHUB_REDIRECT_URI", "")
     # Optional trusted, administrator-configured TradingView MCP server.
     TRADINGVIEW_MCP_URL: str = os.getenv("TRADINGVIEW_MCP_URL", "")
     # Comma-separated list of selectable model identifiers shown in the UI.
