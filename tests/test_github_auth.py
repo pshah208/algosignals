@@ -97,7 +97,10 @@ def test_login_requires_oauth_credentials(app, monkeypatch):
     ("http://example.com/auth/github/callback", "development", 503),
     ("https://" + "user" + ":pass@" + "example.com/auth/github/callback", "production", 503),
     ("https://example.com/auth/github/callback?next=evil", "production", 503),
+    ("https://example.com/auth/github/callback?", "production", 503),
     ("https://example.com/auth/github/callback#fragment", "production", 503),
+    ("https://example.com/auth/github/callback#", "production", 503),
+    ("https://example.com/auth/github/callback\n", "production", 503),
     ("https://example.com/wrong/callback", "production", 503),
     ("https://example.com:bad/auth/github/callback", "production", 503),
     ("https:///auth/github/callback", "production", 503),
@@ -107,6 +110,13 @@ def test_redirect_uri_security(app, monkeypatch, uri, environment, status):
     monkeypatch.setattr(auth.settings, "GITHUB_REDIRECT_URI", uri)
     monkeypatch.setattr(auth.settings, "FLASK_ENV", environment)
     assert app.test_client().get("/auth/github/login").status_code == status
+
+
+def test_session_secret_minimum_length(app):
+    app.secret_key = "x" * 31
+    assert app.test_client().get("/auth/github/login").status_code == 503
+    app.secret_key = "x" * 32
+    assert app.test_client().get("/auth/github/login").status_code == 302
 
 
 def test_pkce_exchange_and_cookie_excludes_token(app, exchange):

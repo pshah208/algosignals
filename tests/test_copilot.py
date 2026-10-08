@@ -4,6 +4,7 @@ import asyncio
 import socket
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from types import ModuleType, SimpleNamespace
@@ -37,10 +38,12 @@ def offline_sdk(monkeypatch):
     factory = create_autospec(CopilotClient)
     client = factory.return_value
     session = create_autospec(CopilotSession, instance=True)
+    session.session_id = "offline-session-id"
     session.__aenter__.return_value = session
     session.__aexit__.return_value = None
     session.send_and_wait.return_value = SimpleNamespace(data=SimpleNamespace(content="answer"))
     client.create_session.return_value = session
+    client.delete_session.return_value = None
     client.get_auth_status.return_value = GetAuthStatusResponse(
         isAuthenticated=True, login="private-login", statusMessage="private-status"
     )
@@ -113,6 +116,8 @@ def test_chat_uses_sdk_async_session_contract_and_reuses_client(runtime, offline
     offline_sdk.session.send_and_wait.assert_awaited_with("system: Be precise\n\nuser: Hi", timeout=45)
     assert offline_sdk.session.__aenter__.await_count == 2
     assert offline_sdk.session.__aexit__.await_count == 2
+    assert offline_sdk.client.delete_session.await_count == 2
+    offline_sdk.client.delete_session.assert_awaited_with("offline-session-id")
 
 
 def test_pure_chat_disables_all_tools_and_workspace_discovery(runtime, offline_sdk):
@@ -228,6 +233,8 @@ def test_research_hook_enforces_allowlist_and_eight_call_budget(runtime, offline
     decisions.clear()
     assert len(runtime.research("AAPL", "Explain the evidence", "model-b")["tools_used"]) == 8
     assert decisions[2]["permissionDecision"] == "allow"
+    assert offline_sdk.client.delete_session.await_count == 2
+    offline_sdk.client.delete_session.assert_awaited_with("offline-session-id")
 
 
 def test_empty_chat_and_research_responses(runtime, offline_sdk, research_tools):
@@ -236,6 +243,7 @@ def test_empty_chat_and_research_responses(runtime, offline_sdk, research_tools)
     with pytest.raises(RuntimeError, match="No research response"):
         runtime.research("AAPL", "Explain", "model-a")
     assert offline_sdk.session.__aexit__.await_count == 2
+    assert offline_sdk.client.delete_session.await_count == 2
 
 
 def test_session_context_closes_when_generation_fails(runtime, offline_sdk):
@@ -243,6 +251,7 @@ def test_session_context_closes_when_generation_fails(runtime, offline_sdk):
     with pytest.raises(RuntimeError, match="SDK failure"):
         runtime.chat([{"role": "user", "content": "Hi"}], "model-a")
     offline_sdk.session.__aexit__.assert_awaited_once()
+    offline_sdk.client.delete_session.assert_awaited_once_with("offline-session-id")
 
 
 def test_metadata_uses_typed_sdk_responses_caches_and_refreshes(runtime, offline_sdk):
@@ -581,3 +590,172 @@ def test_explicit_browser_llm_runtime_remains_isolated_without_models_token(monk
     assert not first.last_call_succeeded
     assert second.last_call_succeeded
     operator.assert_not_called()
+
+
+@pytest.mark.parametrize("operation", ["chat", "research"])
+def test_sdk_response_timeouts_delete_session(runtime, offline_sdk, research_tools, operation):
+    offline_sdk.session.send_and_wait.side_effect = TimeoutError("SDK response timeout")
+    with pytest.raises(TimeoutError, match="Copilot request timed out"):
+        if operation == "chat":
+            runtime.chat([], "model-a")
+        else:
+            runtime.research("AAPL", "Explain", "model-a")
+    offline_sdk.session.__aexit__.assert_awaited_once()
+    offline_sdk.client.delete_session.assert_awaited_once_with("offline-session-id")
+
+
+def test_outer_request_deadline_deletes_session_before_releasing_slot(runtime, offline_sdk):
+    deleted = []
+
+    async def delete(session_id):
+        await asyncio.sleep(0.01)
+        deleted.append(session_id)
+
+    async def stalled(client):
+        async with runtime._disposable_session(client, "model-a", runtime._session_options()):
+            await asyncio.sleep(1)
+
+    offline_sdk.client.delete_session.side_effect = delete
+    with pytest.raises(TimeoutError):
+        runtime._call(stalled, timeout=0.01)
+    assert deleted == ["offline-session-id"]
+    offline_sdk.session.__aexit__.assert_awaited_once()
+    assert runtime.chat([], "model-a") == "answer"
+    assert deleted == ["offline-session-id", "offline-session-id"]
+
+
+def test_session_deletion_is_shielded_from_additional_cancellation(offline_sdk):
+    async def exercise():
+        entered = asyncio.Event()
+        delete_started = asyncio.Event()
+        release_delete = asyncio.Event()
+        deleted = asyncio.Event()
+
+        async def delete(session_id):
+            assert session_id == "offline-session-id"
+            delete_started.set()
+            await release_delete.wait()
+            deleted.set()
+
+        async def operation():
+            async with bridge.CopilotRuntime._disposable_session(
+                offline_sdk.client, "model-a", {}
+            ):
+                entered.set()
+                await asyncio.Event().wait()
+
+        offline_sdk.client.delete_session.side_effect = delete
+        task = asyncio.create_task(operation())
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        task.cancel()
+        await asyncio.wait_for(delete_started.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not deleted.is_set()
+        release_delete.set()
+        await asyncio.wait_for(deleted.wait(), timeout=1)
+        await asyncio.sleep(0)
+
+    asyncio.run(exercise())
+    offline_sdk.session.__aexit__.assert_awaited_once()
+    offline_sdk.client.delete_session.assert_awaited_once_with("offline-session-id")
+
+
+def test_failed_session_entry_still_deletes_created_history(runtime, offline_sdk):
+    offline_sdk.session.__aenter__.side_effect = RuntimeError("Session entry failed")
+    with pytest.raises(RuntimeError, match="Session entry failed"):
+        runtime.chat([], "model-a")
+    offline_sdk.client.delete_session.assert_awaited_once_with("offline-session-id")
+    offline_sdk.session.__aexit__.assert_not_awaited()
+
+
+def test_session_deletion_has_bounded_timeout(runtime, offline_sdk, monkeypatch):
+    wait_for = asyncio.wait_for
+    cleanup_timeouts = []
+    cancelled = []
+
+    async def short_cleanup_timeout(awaitable, timeout):
+        cleanup_timeouts.append(timeout)
+        return await wait_for(awaitable, timeout=0.01)
+
+    async def stalled_delete(session_id):
+        try:
+            await asyncio.sleep(1)
+        finally:
+            cancelled.append(session_id)
+
+    monkeypatch.setattr(bridge.asyncio, "wait_for", short_cleanup_timeout)
+    offline_sdk.client.delete_session.side_effect = stalled_delete
+    with pytest.raises(TimeoutError, match="Copilot request timed out"):
+        runtime.chat([], "model-a")
+    assert cleanup_timeouts == [5]
+    assert cancelled == ["offline-session-id"]
+    offline_sdk.client.delete_session.assert_awaited_once_with("offline-session-id")
+    offline_sdk.session.__aexit__.assert_awaited_once()
+
+
+@pytest.mark.parametrize("queue,admission_timeout", [(False, 1), (True, 120)])
+def test_call_uses_distinct_interactive_and_pipeline_admission_timeouts(
+    runtime, monkeypatch, queue, admission_timeout
+):
+    slots = create_autospec(runtime._slots, instance=True)
+    slots.acquire.return_value = True
+    monkeypatch.setattr(runtime, "_slots", slots)
+
+    async def operation(client):
+        return "admitted"
+
+    assert runtime._call(operation, queue=queue) == "admitted"
+    slots.acquire.assert_called_once_with(timeout=admission_timeout)
+    slots.release.assert_called_once_with()
+
+
+@pytest.mark.parametrize("operation", ["chat", "research", "metadata"])
+def test_only_signal_chat_queues_for_capacity(runtime, monkeypatch, research_tools, operation):
+    call = create_autospec(runtime._call)
+    call.return_value = {"authenticated": False, "available": []}
+    monkeypatch.setattr(runtime, "_call", call)
+    if operation == "chat":
+        runtime.chat([], "model-a")
+        assert call.call_args.kwargs == {"queue": True}
+    elif operation == "research":
+        runtime.research("AAPL", "Explain", "model-a")
+        assert call.call_args.kwargs.get("queue", False) is False
+    else:
+        runtime.metadata()
+        assert call.call_args.kwargs == {"timeout": 20}
+    call.assert_called_once()
+
+
+@pytest.mark.parametrize("operation", ["research", "metadata"])
+def test_busy_interactive_request_does_not_wait_for_pipeline_queue(
+    runtime, monkeypatch, offline_sdk, research_tools, operation
+):
+    slots = create_autospec(runtime._slots, instance=True)
+    slots.acquire.return_value = False
+    monkeypatch.setattr(runtime, "_slots", slots)
+    started = time.monotonic()
+    if operation == "research":
+        with pytest.raises(RuntimeError, match="busy"):
+            runtime.research("AAPL", "Explain", "model-a")
+    else:
+        assert runtime.metadata() == {"authenticated": False, "available": []}
+    assert time.monotonic() - started < 1
+    slots.acquire.assert_called_once_with(timeout=1)
+    slots.release.assert_not_called()
+    offline_sdk.factory.assert_not_called()
+
+
+def test_four_signal_calls_queue_past_old_one_second_admission_limit(runtime, offline_sdk):
+    async def generate(prompt, *, timeout):
+        await asyncio.sleep(1.1)
+        return SimpleNamespace(data=SimpleNamespace(content="queued answer"))
+
+    offline_sdk.session.send_and_wait.side_effect = generate
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        answers = list(pool.map(lambda model: runtime.chat([], model), ["model-a"] * 4))
+    assert answers == ["queued answer"] * 4
+    offline_sdk.client.start.assert_awaited_once()
+    assert offline_sdk.client.create_session.await_count == 4
+    assert offline_sdk.client.delete_session.await_count == 4

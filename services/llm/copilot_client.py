@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import TimeoutError as FutureTimeout
+from contextlib import asynccontextmanager
 
 from config import settings
 
@@ -59,10 +60,10 @@ class CopilotRuntime:
                 self._client = client
             return self._client
 
-    def _call(self, operation, timeout=60):
+    def _call(self, operation, timeout=60, queue=False):
         if self._closed:
             raise RuntimeError("Copilot session expired.")
-        if not self._slots.acquire(timeout=1):
+        if not self._slots.acquire(timeout=120 if queue else 1):
             raise RuntimeError("Copilot is busy; retry shortly.")
 
         async def run():
@@ -155,17 +156,30 @@ class CopilotRuntime:
             },
         }
 
+    @staticmethod
+    @asynccontextmanager
+    async def _disposable_session(client, model, options):
+        session = await client.create_session(model=model, **options)
+        try:
+            async with session:
+                yield session
+        finally:
+            # Disconnect preserves history; these one-shot conversations must be deleted.
+            await asyncio.shield(
+                asyncio.wait_for(client.delete_session(session.session_id), timeout=5)
+            )
+
     def chat(self, messages, model):
         async def generate(client):
             options = self._session_options()
-            async with await client.create_session(model=model, **options) as session:
+            async with self._disposable_session(client, model, options) as session:
                 reply = await session.send_and_wait(
                     "\n\n".join(f"{m['role']}: {m['content']}" for m in messages),
                     timeout=45,
                 )
                 return reply.data.content if reply else None
 
-        return self._call(generate)
+        return self._call(generate, queue=True)
 
     def research(self, symbol, question, model):
         from services.research_service import make_research_tools, tradingview_servers
@@ -186,7 +200,7 @@ class CopilotRuntime:
 
         async def investigate(client):
             options = self._session_options(tools, servers, {"on_pre_tool_use": before_tool})
-            async with await client.create_session(model=model, **options) as session:
+            async with self._disposable_session(client, model, options) as session:
                 reply = await session.send_and_wait(
                     f"Research {symbol}. First inspect its saved signal evidence. "
                     f"Use at most 8 read-only tool calls. Question: {question}",

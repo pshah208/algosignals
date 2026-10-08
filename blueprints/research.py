@@ -49,8 +49,8 @@ def research():
         return jsonify({"error": "Expected a JSON object."}), 400
     try:
         symbol = validate_symbol(data.get("symbol"))
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except ValueError:
+        return jsonify({"error": "Use a valid ticker of at most 20 characters."}), 400
     question = data.get("question", "Explain the evidence, risks and missing data for this ticker.")
     if not isinstance(question, str) or not 1 <= len(question.strip()) <= 2000:
         return jsonify({"error": "question must contain 1–2000 characters."}), 400

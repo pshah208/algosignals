@@ -119,6 +119,9 @@ tests/
 
 ## Setup
 
+**Prerequisite:** Python **3.11+**, required by the pinned GitHub Copilot SDK.
+The current runtime uses Python 3.12.
+
 ```bash
 # 1. Clone and enter the repo
 git clone https://github.com/pshah208/algosignals.git
@@ -144,7 +147,7 @@ All settings are in `.env` (copy from `.env.example`):
 
 | Variable | Default | Description |
 |---|---|---|
-| `SECRET_KEY` | `dev-secret-key` | Flask session secret — **change in production** |
+| `SECRET_KEY` | `dev-secret-key` | Flask session secret — **change in production**; OAuth requires at least 32 characters and rejects insecure defaults |
 | `DATABASE_URL` | `sqlite:///algosignals.db` | SQLAlchemy URL |
 | `LLM_PROVIDER` | `models` | `models` for OpenAI-compatible inference; `copilot` for the official Copilot SDK |
 | `GITHUB_TOKEN` | *(empty)* | Legacy GitHub Models PAT, not a Copilot login (see retirement notice below) |
@@ -213,9 +216,12 @@ GITHUB_CLIENT_SECRET=your-oauth-app-client-secret
 GITHUB_REDIRECT_URI=http://localhost:5000/auth/github/callback
 ```
 
-For production, set a strong `SECRET_KEY`, use HTTPS, and set
+Set a strong `SECRET_KEY` of **at least 32 characters**; insecure default/placeholder
+secrets are rejected for OAuth. Replace `APP_API_KEY=change-me-api-key` as well:
+Copilot rejects that example placeholder.
+For production, use HTTPS and set
 `GITHUB_REDIRECT_URI` explicitly to the HTTPS callback registered on the OAuth app.
-Keep the client secret private.
+Insecure production callback URLs are rejected. Keep the client secret private.
 
 Use **Sign in with GitHub** on the dashboard or research page. GitHub OAuth app
 user tokens authenticate the user's Copilot session; the account still needs
@@ -356,6 +362,8 @@ The `copilot-cli` runtime uses an isolated working directory with configuration
 and skills discovery disabled. Host/file/shell tools are disabled; an explicit
 allowlist exposes only the custom tools and the four optional read-only TradingView
 tools below, not the CLI's general-purpose tools.
+Disposable SDK sessions are deleted after each call so completed research history
+is not left persisted by the SDK.
 
 Optionally install and run **tradingview-mcp** as a separate trusted self-hosted
 HTTP server from its official source, following that project's installation and

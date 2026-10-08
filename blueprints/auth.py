@@ -21,7 +21,11 @@ def _configured():
     try:
         parsed = urlsplit(uri)
         valid_uri = (
-            parsed.hostname is not None
+            isinstance(uri, str)
+            and not any(character.isspace() for character in uri)
+            and "?" not in uri
+            and "#" not in uri
+            and parsed.hostname is not None
             and parsed.username is None
             and parsed.password is None
             and not parsed.query
