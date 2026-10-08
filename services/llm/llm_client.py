@@ -5,6 +5,7 @@ heuristic/templated outputs so the rest of the app continues to work.
 """
 
 import json
+import math
 from typing import Any
 
 import httpx
@@ -54,6 +55,14 @@ class LLMClient:
         """Send a chat-completion request and return the assistant content."""
         if not self.enabled:
             return None
+        if settings.LLM_PROVIDER == "copilot":
+            from services.llm.copilot_client import get_copilot_runtime
+
+            try:
+                return get_copilot_runtime().chat(messages, self.model)
+            except Exception:
+                logger.warning("Copilot unavailable; using heuristic fallback.")
+                return None
         headers = {
             "Authorization": f"******",
             "Content-Type": "application/json",
@@ -101,15 +110,21 @@ class LLMClient:
             return {"score": 0.0, "summary": "LLM unavailable."}
 
         # Strip markdown fences if the model wraps the JSON
-        clean = content.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        clean = content.strip()
+        if clean.startswith("```") and clean.endswith("```"):
+            clean = clean.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         try:
             parsed = json.loads(clean)
+            if not isinstance(parsed, dict):
+                raise ValueError("Expected a JSON object")
             score = float(parsed.get("score", 0.0))
+            if not math.isfinite(score):
+                raise ValueError("Expected a finite score")
             score = max(-1.0, min(1.0, score))
             summary = str(parsed.get("summary", ""))
             return {"score": score, "summary": summary}
-        except (ValueError, KeyError):
-            logger.exception("Failed to parse LLM sentiment response: %s", content)
+        except (ValueError, TypeError, KeyError):
+            logger.warning("Failed to parse LLM sentiment response.")
             return {"score": 0.0, "summary": "Could not parse LLM response."}
 
     def generate_rationale(
@@ -178,9 +193,18 @@ class LLMClient:
 _client: LLMClient | None = None
 
 
-def get_llm_client() -> LLMClient:
-    """Return the shared LLMClient singleton."""
+def get_llm_client(model: str | None = None) -> LLMClient:
+    """Return a run-local client when a model is explicitly selected."""
+    if model is not None:
+        client = LLMClient(model=model)
+        if settings.LLM_PROVIDER == "copilot":
+            client.enabled = True
+        return client
     global _client
     if _client is None:
-        _client = LLMClient()
+        _client = LLMClient(
+            model=settings.COPILOT_MODEL if settings.LLM_PROVIDER == "copilot" else None
+        )
+        if settings.LLM_PROVIDER == "copilot":
+            _client.enabled = True
     return _client

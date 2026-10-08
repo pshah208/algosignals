@@ -19,7 +19,7 @@ bp = Blueprint("dashboard", __name__)
 
 @bp.route("/")
 def index():
-    from blueprints.models import get_active_model
+    from blueprints.models import available_models, get_active_model
 
     db = SessionLocal()
     try:
@@ -43,9 +43,10 @@ def index():
             "dashboard.html",
             latest_run=latest_run.to_dict() if latest_run else None,
             recommendations=recommendations,
-            available_models=settings.llm_available_models,
+            available_models=available_models(),
             active_model=get_active_model(),
             llm_enabled=settings.llm_enabled,
+            llm_provider=settings.LLM_PROVIDER,
         )
     finally:
         db.close()
@@ -64,10 +65,12 @@ def metrics():
 
 @bp.route("/run-now", methods=["POST"])
 def run_now():
+    from blueprints.models import get_active_model
+    from services.llm.llm_client import get_llm_client
     from services.signal_service import run_signals
 
     try:
-        run_id = run_signals()
+        run_id = run_signals(llm_client=get_llm_client(model=get_active_model()))
         flash(f"Signal run #{run_id} completed successfully.", "success")
     except Exception as exc:
         flash(f"Run failed: {exc}", "danger")
