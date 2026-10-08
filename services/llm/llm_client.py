@@ -5,6 +5,8 @@ heuristic/templated outputs so the rest of the app continues to work.
 """
 
 import json
+import math
+import threading
 from typing import Any
 
 import httpx
@@ -36,11 +38,22 @@ class LLMClient:
         base_url: str | None = None,
         model: str | None = None,
         token: str | None = None,
+        provider: str | None = None,
+        runtime: Any | None = None,
     ) -> None:
+        self.provider = provider or settings.LLM_PROVIDER
+        self._runtime = runtime
         self.base_url = (base_url or settings.LLM_BASE_URL).rstrip("/")
-        self.model = model or settings.LLM_MODEL
+        self.model = model or (
+            settings.COPILOT_MODEL if self.provider == "copilot" else settings.LLM_MODEL
+        )
         self.token = token if token is not None else settings.llm_token
-        self.enabled = bool(self.token)
+        self.enabled = self.provider == "copilot" or bool(self.token)
+        self._call_state = threading.local()
+
+    @property
+    def last_call_succeeded(self) -> bool:
+        return getattr(self._call_state, "succeeded", False)
 
     def set_model(self, model: str) -> None:
         """Switch the active model identifier used for subsequent requests."""
@@ -52,10 +65,21 @@ class LLMClient:
 
     def _chat(self, messages: list[dict[str, str]]) -> str | None:
         """Send a chat-completion request and return the assistant content."""
+        self._call_state.succeeded = False
         if not self.enabled:
             return None
+        if self.provider == "copilot":
+            from services.llm.copilot_client import get_copilot_runtime
+
+            try:
+                content = (self._runtime or get_copilot_runtime()).chat(messages, self.model)
+                self._call_state.succeeded = bool(content)
+                return content
+            except Exception:
+                logger.warning("Copilot unavailable; using heuristic fallback.")
+                return None
         headers = {
-            "Authorization": f"******",
+            "Authorization": "Bearer " + self.token,
             "Content-Type": "application/json",
         }
         payload = {
@@ -69,7 +93,11 @@ class LLMClient:
             resp = httpx.post(url, json=payload, headers=headers, timeout=_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"]
+            if not isinstance(content, str):
+                return None
+            self._call_state.succeeded = bool(content)
+            return content
         except Exception:
             logger.exception("LLM call to %s failed", url)
             return None
@@ -90,7 +118,7 @@ class LLMClient:
             Falls back to ``{"score": 0.0, "summary": "LLM unavailable"}`` on failure.
         """
         if not headlines:
-            return {"score": 0.0, "summary": "No headlines available."}
+            return {"score": 0.0, "summary": "No headlines available.", "available": False}
 
         prompt = NEWS_SENTIMENT_PROMPT.format(
             symbol=symbol,
@@ -98,19 +126,25 @@ class LLMClient:
         )
         content = self._chat([{"role": "user", "content": prompt}])
         if content is None:
-            return {"score": 0.0, "summary": "LLM unavailable."}
+            return {"score": 0.0, "summary": "LLM unavailable.", "available": False}
 
         # Strip markdown fences if the model wraps the JSON
-        clean = content.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        clean = content.strip()
+        if clean.startswith("```") and clean.endswith("```"):
+            clean = clean.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         try:
             parsed = json.loads(clean)
+            if not isinstance(parsed, dict):
+                raise ValueError("Expected a JSON object")
             score = float(parsed.get("score", 0.0))
+            if not math.isfinite(score):
+                raise ValueError("Expected a finite score")
             score = max(-1.0, min(1.0, score))
             summary = str(parsed.get("summary", ""))
-            return {"score": score, "summary": summary}
-        except (ValueError, KeyError):
-            logger.exception("Failed to parse LLM sentiment response: %s", content)
-            return {"score": 0.0, "summary": "Could not parse LLM response."}
+            return {"score": score, "summary": summary, "available": True}
+        except (ValueError, TypeError, KeyError):
+            logger.warning("Failed to parse LLM sentiment response.")
+            return {"score": 0.0, "summary": "Could not parse LLM response.", "available": False}
 
     def generate_rationale(
         self,
@@ -133,6 +167,7 @@ class LLMClient:
             Plain-English rationale string.
         """
         if not self.enabled:
+            self._call_state.succeeded = False
             return self._fallback_rationale(symbol, factor_scores, composite, action)
 
         prompt = RATIONALE_PROMPT.format(
@@ -178,8 +213,15 @@ class LLMClient:
 _client: LLMClient | None = None
 
 
-def get_llm_client() -> LLMClient:
-    """Return the shared LLMClient singleton."""
+def get_llm_client(model: str | None = None) -> LLMClient:
+    """Return a run-local client when a model is explicitly selected."""
+    if model is not None:
+        runtime = None
+        if settings.LLM_PROVIDER == "copilot":
+            from services.llm.copilot_client import get_request_copilot_runtime
+
+            runtime = get_request_copilot_runtime()
+        return LLMClient(model=model, runtime=runtime)
     global _client
     if _client is None:
         _client = LLMClient()

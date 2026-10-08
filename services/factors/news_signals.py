@@ -167,6 +167,8 @@ def compute(symbol: str, llm_client: Any | None = None) -> FactorResult:
     if llm_client and getattr(llm_client, "enabled", False):
         try:
             llm_result = llm_client.score_news_sentiment(symbol, headlines)
+            if llm_result.get("available") is False:
+                raise ValueError("LLM sentiment unavailable")
             score = llm_result.get("score", 0.0)
             summary = llm_result.get("summary", "")
             llm_used = True

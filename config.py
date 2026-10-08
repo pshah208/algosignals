@@ -22,6 +22,13 @@ class Config:
     LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://models.github.ai/inference")
     LLM_MODEL: str = os.getenv("LLM_MODEL", "openai/gpt-4.1-mini")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "models").strip().lower()
+    COPILOT_MODEL: str = os.getenv("COPILOT_MODEL", "gpt-4.1")
+    GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "")
+    GITHUB_CLIENT_SECRET: str = os.getenv("GITHUB_CLIENT_SECRET", "")
+    GITHUB_REDIRECT_URI: str = os.getenv("GITHUB_REDIRECT_URI", "")
+    # Optional trusted, administrator-configured TradingView MCP server.
+    TRADINGVIEW_MCP_URL: str = os.getenv("TRADINGVIEW_MCP_URL", "")
     # Comma-separated list of selectable model identifiers shown in the UI.
     # LLM_MODEL is always included (prepended) if not already present.
     LLM_AVAILABLE_MODELS: str = os.getenv(
@@ -52,7 +59,7 @@ class Config:
     @property
     def llm_enabled(self) -> bool:
         """True when at least one LLM auth token is configured."""
-        return bool(self.llm_token)
+        return self.LLM_PROVIDER == "copilot" or bool(self.llm_token)
 
     # News
     NEWS_API_KEY: str = os.getenv("NEWS_API_KEY", "")

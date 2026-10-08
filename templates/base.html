@@ -39,6 +39,10 @@
              href="{{ url_for('dashboard.index') }}">Dashboard</a>
         </li>
         <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'dashboard.research_page' %}active{% endif %}"
+             href="{{ url_for('dashboard.research_page') }}">Research</a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {% if request.endpoint and 'watchlist' in request.endpoint %}active{% endif %}"
              href="{{ url_for('watchlist.index') }}">Watchlist</a>
         </li>
@@ -55,6 +59,18 @@
              href="{{ url_for('dashboard.metrics') }}">Scoring Metrics</a>
         </li>
       </ul>
+      {% set github = github_login|default({}) %}
+      {% if github.get('logged_in') %}
+      <div class="d-flex align-items-center gap-2">
+        <span class="navbar-text">GitHub: {{ github.get('login', '') }}</span>
+        <form action="{{ url_for('auth.logout') }}" method="post">
+          <input type="hidden" name="csrf_token" value="{{ github.get('csrf_token', '') }}" />
+          <button class="btn btn-sm btn-outline-light" type="submit">Sign out</button>
+        </form>
+      </div>
+      {% elif auth_enabled|default(false) %}
+      <a class="btn btn-sm btn-outline-light" href="{{ url_for('auth.login') }}">Sign in with GitHub</a>
+      {% endif %}
     </div>
   </div>
 </nav>

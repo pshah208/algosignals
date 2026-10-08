@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Research — AlgoSignals{% endblock %}
+
+{% block content %}
+{% set github = github_login|default({}) %}
+<h2>Copilot research</h2>
+<p>Ask about one symbol using saved signal evidence and current prices, with optional
+  read-only TradingView MCP analysis. This assistant does not place trades.</p>
+<p>Choose the research model on the <a href="{{ url_for('dashboard.index') }}">dashboard</a>.</p>
+
+{% if llm_provider != 'copilot' %}
+<div class="alert alert-info" role="alert">
+  Research is disabled for the current provider. The server operator must set
+  <code>LLM_PROVIDER=copilot</code>, configure <code>APP_API_KEY</code>, and authenticate Copilot.
+</div>
+{% endif %}
+{% if auth_enabled|default(false) and not github.get('logged_in') %}
+<div class="alert alert-warning" role="alert">
+  <a href="{{ url_for('auth.login') }}">Sign in with GitHub</a> to use your Copilot access.
+  The application API key is also required. The operator's CLI login is not used
+  when browser OAuth is configured.
+</div>
+{% endif %}
+
+<details class="mb-3">
+  <summary>GitHub login and setup instructions</summary>
+  {% if auth_enabled|default(false) %}
+  <p class="mt-2">Use the GitHub sign-in button above to authorize this application's OAuth
+    app. Your GitHub account needs Copilot access. Each browser has an isolated
+    Copilot runtime; GitHub tokens stay in a server-side memory vault, not cookies
+    or the database. Sign in again after one hour or a server restart.
+    Sign out clears the local login only; revoke the application's authorization
+    separately in GitHub settings if needed.</p>
+  {% else %}
+  <p class="mt-2">Browser OAuth is not configured. The operator needs GitHub Copilot access.
+    Install the official Copilot CLI,
+    run <code>copilot login</code> (or start <code>copilot</code> and enter <code>/login</code>),
+    and follow its browser prompts using the same OS account that runs Flask.</p>
+  {% endif %}
+  <p>Preprovision the SDK runtime with <code>python -m copilot download-runtime</code>.
+    Never paste a GitHub token in the application API-key field.</p>
+</details>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form id="research-form">
+      <fieldset {% if llm_provider != 'copilot' or (auth_enabled|default(false) and not github.get('logged_in')) %}disabled{% endif %}>
+        <div class="mb-3">
+          <label for="research-api-key" class="form-label">Application API key</label>
+          <input id="research-api-key" type="password" class="form-control" required autocomplete="off"
+                 aria-describedby="key-help" />
+          <div id="key-help" class="form-text">Use APP_API_KEY from the server configuration.
+            This page does not save it in cookies or browser storage.</div>
+        </div>
+        <button id="status-button" type="button" class="btn btn-outline-secondary mb-3">Check Copilot status</button>
+        <p id="copilot-status" role="status" aria-live="polite">Status has not been checked.</p>
+        <div class="mb-3">
+          <label for="research-symbol" class="form-label">Symbol</label>
+          <input id="research-symbol" type="text" class="form-control" placeholder="AAPL or RELIANCE.NS"
+                 required maxlength="20" autocomplete="off" />
+        </div>
+        <div class="mb-3">
+          <label for="research-question" class="form-label">Research question</label>
+          <textarea id="research-question" class="form-control" rows="3" required minlength="1"
+                    maxlength="2000" placeholder="What evidence supports the latest signal, and what data is missing?"></textarea>
+        </div>
+        <button id="research-button" type="submit" class="btn btn-primary">Research symbol</button>
+        <p class="form-text mb-0">Up to eight tool calls and a 60-second research budget.
+          Missing or stale data must be noted; output is advisory only.</p>
+      </fieldset>
+    </form>
+  </div>
+</div>
+<div id="research-error" class="alert alert-danger" role="alert" hidden></div>
+<section id="research-result" class="card" hidden aria-live="polite">
+  <div class="card-body">
+    <h3 class="h5" id="research-heading">Research answer</h3>
+    <p id="research-answer" style="white-space: pre-wrap; overflow-wrap: anywhere;"></p>
+    <p id="research-tools" class="small text-muted"></p>
+    <p id="research-disclaimer" class="small mb-0"></p>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const form = document.getElementById('research-form');
+  const key = document.getElementById('research-api-key');
+  const statusButton = document.getElementById('status-button');
+  const researchButton = document.getElementById('research-button');
+  const status = document.getElementById('copilot-status');
+  const error = document.getElementById('research-error');
+  const result = document.getElementById('research-result');
+  let busy = false;
+
+  async function request(path, body) {
+    const headers = { 'Authorization': 'Bearer ' + key.value, 'Accept': 'application/json' };
+    if (body) headers['Content-Type'] = 'application/json';
+    const response = await fetch(path, {
+      method: body ? 'POST' : 'GET', headers, credentials: 'same-origin', cache: 'no-store',
+      ...(body ? { body: JSON.stringify(body) } : {})
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const fallback = response.status === 401 ? 'Invalid application API key.' :
+        response.status === 503 ? 'Copilot is disabled, not configured, or unavailable. Check server setup.' :
+        'Request failed (' + response.status + ').';
+      throw new Error(typeof data.error === 'string' ? data.error : fallback);
+    }
+    return data;
+  }
+
+  function showError(message) {
+    error.textContent = message;
+    error.hidden = false;
+  }
+
+  function setBusy(value) {
+    busy = value;
+    statusButton.disabled = value;
+    researchButton.disabled = value;
+  }
+
+  statusButton.addEventListener('click', async () => {
+    if (busy || !key.reportValidity()) return;
+    error.hidden = true;
+    setBusy(true);
+    status.textContent = 'Checking Copilot status…';
+    try {
+      const data = await request('/api/v1/copilot/status');
+      status.textContent = 'Enabled: ' + Boolean(data.enabled) + ' · Authenticated: ' +
+        Boolean(data.authenticated) + ' · Available models: ' +
+        (Array.isArray(data.available) ? (data.available.join(', ') || 'none') : 'none');
+    } catch (err) {
+      status.textContent = 'Copilot status could not be checked.';
+      showError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (busy || !form.reportValidity()) return;
+    error.hidden = true;
+    result.hidden = true;
+    setBusy(true);
+    researchButton.textContent = 'Researching…';
+    try {
+      const data = await request('/api/v1/research', {
+        symbol: document.getElementById('research-symbol').value.trim(),
+        question: document.getElementById('research-question').value.trim()
+      });
+      document.getElementById('research-heading').textContent =
+        'Research: ' + data.symbol + ' · ' + data.model;
+      document.getElementById('research-answer').textContent = data.answer;
+      document.getElementById('research-tools').textContent =
+        'Tools used: ' + (Array.isArray(data.tools_used) && data.tools_used.length ?
+          data.tools_used.join(', ') : 'none');
+      document.getElementById('research-disclaimer').textContent =
+        data.disclaimer || 'Advisory only — not investment advice. No trades are placed.';
+      result.hidden = false;
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setBusy(false);
+      researchButton.textContent = 'Research symbol';
+    }
+  });
+})();
+</script>
+{% endblock %}

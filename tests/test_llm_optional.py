@@ -115,3 +115,23 @@ class TestLLMClientEnabled:
         with patch("httpx.post", return_value=mock_resp):
             result = self.client.score_news_sentiment("AAPL", ["Headline"])
         assert result["score"] == 1.0
+
+    def test_authorization_uses_configured_token(self):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        with patch("httpx.post", return_value=mock_resp) as post:
+            assert self.client._chat([{"role": "user", "content": "hello"}]) == "ok"
+        assert post.call_args.kwargs["headers"]["Authorization"] == "Bearer " + self.client.token
+        assert self.client.last_call_succeeded is True
+
+    @pytest.mark.parametrize("content", ['[]', '{"score": null}', '{"score": NaN}', '{"score": Infinity}', '```json\n{"score": 0.3, "summary": "ok"}\n```'])
+    def test_sentiment_validation(self, content):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"choices": [{"message": {"content": content}}]}
+        with patch("httpx.post", return_value=mock_resp):
+            result = self.client.score_news_sentiment("AAPL", ["Headline"])
+        if content.startswith("```"):
+            assert result["score"] == 0.3
+            assert result["available"] is True
+        else:
+            assert result["available"] is False

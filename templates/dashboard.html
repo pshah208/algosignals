@@ -19,7 +19,12 @@
       <small class="text-muted">No runs yet.</small>
     {% endif %}
   </div>
-  <form action="{{ url_for('dashboard.run_now') }}" method="post" class="d-inline">
+  <form action="{{ url_for('dashboard.run_now') }}" method="post" class="d-flex align-items-center gap-2 flex-wrap">
+    {% if llm_provider == 'copilot' %}
+    <label for="run-api-key" class="visually-hidden">Application API key</label>
+    <input id="run-api-key" name="api_key" type="password" class="form-control w-auto"
+           placeholder="Application API key" required autocomplete="off" />
+    {% endif %}
     <button type="submit" class="btn btn-primary">▶ Run Now</button>
   </form>
 </div>
@@ -33,7 +38,7 @@
         🤖 LLM model:
       </label>
       <select id="model-select" name="model" class="form-select form-select-sm w-auto"
-              {% if not llm_enabled %}disabled title="No LLM token configured — using heuristic fallback"{% endif %}>
+              {% if not llm_enabled %}disabled title="LLM unavailable — using heuristic fallback"{% endif %}>
         {% for m in available_models %}
           <option value="{{ m }}" {% if m == active_model %}selected{% endif %}>{{ m }}</option>
         {% endfor %}
@@ -43,9 +48,19 @@
         Switch
       </button>
       <span class="badge {% if llm_enabled %}bg-info text-dark{% else %}bg-secondary{% endif %} ms-1">
-        {% if llm_enabled %}LLM: {{ active_model }}{% else %}heuristic (no token){% endif %}
+        {% if llm_enabled %}{{ llm_provider|default('models') }}: {{ active_model }}{% else %}heuristic (LLM unavailable){% endif %}
       </span>
     </form>
+    {% if llm_provider == 'copilot' %}
+    <small class="text-muted">
+      {% if auth_enabled|default(false) %}
+      Uses your GitHub browser login and Copilot access. Sign in above before calling Copilot.
+      {% else %}
+      Browser OAuth is not configured; uses the server operator's Copilot CLI login.
+      {% endif %}
+      <a href="{{ url_for('dashboard.research_page') }}">Check status and research a symbol</a>.
+    </small>
+    {% endif %}
   </div>
 </div>
 {# ──────────────────────────────────────────────────────────── #}

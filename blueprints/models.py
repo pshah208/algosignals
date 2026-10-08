@@ -7,7 +7,6 @@ POST /api/models  → set the active model (validated against the allowed list).
 from flask import Blueprint, flash, jsonify, redirect, request, session, url_for
 
 from config import settings
-from services.llm.llm_client import get_llm_client
 
 bp = Blueprint("models", __name__, url_prefix="/api/models")
 
@@ -16,13 +15,19 @@ _SESSION_KEY = "active_llm_model"
 
 def get_active_model() -> str:
     """Return the model currently selected for this session (or the default)."""
-    return session.get(_SESSION_KEY, settings.LLM_MODEL)
+    default = settings.COPILOT_MODEL if settings.LLM_PROVIDER == "copilot" else settings.LLM_MODEL
+    return session.get(f"{_SESSION_KEY}:{settings.LLM_PROVIDER}", default)
 
 
-def apply_session_model() -> None:
-    """Sync the session-stored model selection onto the shared LLM client."""
-    model = get_active_model()
-    get_llm_client().set_model(model)
+def available_models() -> list[str]:
+    if settings.LLM_PROVIDER == "copilot":
+        from services.llm.copilot_client import get_request_copilot_runtime
+
+        try:
+            return get_request_copilot_runtime().metadata()["available"] or [settings.COPILOT_MODEL]
+        except RuntimeError:
+            return [settings.COPILOT_MODEL]
+    return settings.llm_available_models
 
 
 @bp.route("", methods=["GET"])
@@ -38,7 +43,7 @@ def list_models():
     """
     return jsonify(
         {
-            "available": settings.llm_available_models,
+            "available": available_models(),
             "active": get_active_model(),
         }
     )
@@ -57,12 +62,16 @@ def set_model():
     is_json = request.is_json
     if is_json:
         data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            return jsonify({"error": "Expected a JSON object"}), 400
         model = data.get("model", "")
     else:
         model = request.form.get("model", "")
 
+    if not isinstance(model, str):
+        return jsonify({"error": "model must be a string"}), 400
     model = model.strip()
-    allowed = settings.llm_available_models
+    allowed = available_models()
 
     if not model:
         if is_json:
@@ -78,8 +87,7 @@ def set_model():
         flash(f"Unknown model '{model}'.", "danger")
         return redirect(url_for("dashboard.index"))
 
-    session[_SESSION_KEY] = model
-    get_llm_client().set_model(model)
+    session[f"{_SESSION_KEY}:{settings.LLM_PROVIDER}"] = model
 
     if is_json:
         return jsonify({"active": model})
